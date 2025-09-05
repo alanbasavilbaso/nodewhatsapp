@@ -8,94 +8,117 @@
 
 ## 🚀 Microservicio Completo Implementado
 ### Endpoints Disponibles:
-1. 1.
-   POST /api/send-appointment-message
-   
-   - Envía mensajes de citas médicas con formato profesional
-   - Tipos: confirmation , reminder , urgent_reminder , cancellation
-   - Formateo automático de números argentinos
-2. 2.
-   GET /api/qr-code
-   
-   - Obtiene el código QR para setup inicial
-   - Indica si ya está conectado
-3. 3.
-   GET /api/health
-   
-   - Estado completo del servicio
-   - Información de conexión WhatsApp
-   - Lista de endpoints disponibles
 
 
 
-### Ejemplo de uso:
-```
-# Enviar confirmación de cita
-curl -X POST http://localhost:3000/api/send-appointment-message \
-  -H "Content-Type: application/json" \
-  -d '{
-    "phone": "+54 9 2346 33-4077",
-    "messageType": "confirmation",
-    "appointmentData": {
-      "patient": "Ana García",
-      "professional": "Dr. Juan Pérez",
-      "service": "Consulta Cardiológica",
-      "date": "15 de Enero 2024",
-      "time": "14:30",
-      "location": "Clínica San José - Consultorio 205"
-    }
+
+
+
+
+bien, hay unos cambios.
+
+para todos los casos hay que enviar, en el header:
+
+Origin: http://localhost:8000 (setearlo en eenvvar)
+
+X-API-Auth: dev_token_12345 (setearlo en envvar)
+
+User-Agent: SymfonyApp/1.0 (setearlo en envvar)
+
+ver estado de conexion con whatsapp de una location :
+
+GET http://<<base_url>>/api/whatsapp/session/542346505040/status
+
+siendo 542346505040 el phone de la location.
+
+y recibimos algo asi:
+
+{
+
+"success": true,
+
+"data": {
+
+"isConnected": true,
+
+"state": "connected",
+
+"qrCode": null,
+
+"phoneNumber": "542346505040"
+
 }
 
-```
+}
 
+para obtener el QR:
 
-# 🏗️ Arquitectura del Microservicio WhatsApp
-## 📋 Estructura General
-├── server.js           # Servidor principal + endpoints específicos
-├── routes/
-│   ├── index.js        # Rutas web (frontend)
-│   └── whatsapp.js     # API WhatsApp genérica
-├── services/
-│   └── whatsappService.js  # Lógica de conexión WhatsApp
-├── utils/
-│   ├── MessageBuilder.js   # Constructor de mensajes
-│   └── logger.js          # Sistema de logs
-└── public/             # Archivos estáticos
+GET http://<<base_url>>/api/whatsapp/session/542346505040/qr
 
-## 🔌 Endpoints Disponibles
-### 📱 Endpoints Principales (server.js)
-- POST /api/send-appointment-message - Envío de mensajes de citas médicas
-- GET /api/qr-code - Obtener QR para conectar WhatsApp
-- GET /api/health - Estado del servicio
+siendo 542346505040 el phone de la location.
 
-### 🛠️ API WhatsApp Genérica (/api/whatsapp/)
-- GET /status - Estado de conexión
-- GET /qr - QR code alternativo
-- POST /send-message - Envío genérico de mensajes
-- GET /contacts - Lista de contactos
-- GET /groups - Lista de grupos
-- POST /logout - Cerrar sesión
+obtenemos algo asi
 
+{
 
-## ⚙️ Componentes Clave
-### WhatsAppService
-- Maneja conexión con Baileys
-- Persistencia de sesión ( auth_info_baileys/ )
-- Auto-reconexión
-- Generación de QR codes
-### MessageBuilder
-- Construye mensajes de citas: confirmation , reminder , urgent_reminder , cancellation
-- Soporte para texto, imágenes, documentos
-- Formateo de números telefónicos argentinos
-### Seguridad & Límites
-- Rate limiting: 30 msg/min, 100 req/min
-- CORS configurado
-- Helmet para seguridad
-- Validación con Joi
-## 🎯 Flujo Principal
-1. 1.
-   Setup : GET /api/qr-code → Escanear QR
-2. 2.
-   Verificar : GET /api/health → Estado de conexión
-3. 3.
-   Enviar : POST /api/send-appointment-message → Mensaje de cita
+"success": false,
+
+"message": "QR no disponible",
+
+"state": "connected"
+
+}
+
+POST http://<<base_url>>/api/whatsapp/session/542346505040/send-message (para enviar un mensaje) de prueba:
+
+body:
+
+{
+
+"to": "5492346334077",
+
+"message": "a que hora vnis? "
+
+}
+
+y responde:
+
+{
+
+"success": true,
+
+"data": {
+
+"success": true
+
+}
+
+}
+
+POST {whatsappServiceUrl}/api/whatsapp/session/542346505040/send-template
+
+enviar json:
+
+{
+
+"phone": "número_telefono_paciente", (sin el + adelante)
+
+"appointmentData": {
+
+"patientName": "Nombre del paciente",
+
+"professionalName": "Nombre del profesional",
+
+"serviceName": "Nombre del servicio",
+
+"scheduledAt": "2024-01-15T10:30:00+00:00",
+
+"location": "Nombre de la ubicación"
+
+},
+
+"messageType": "confirmation|reminder|urgent",
+
+"appointmentId": 123
+
+}

@@ -16,18 +16,20 @@ function createBaileysLogger() {
 }
 
 class WhatsAppService {
-  constructor() {
+  constructor(phoneNumber, authDir) {
     this.client = null;
     this.isConnected = false;
     this.connectionState = 'disconnected';
     this.qrCode = null;
-    this.phoneNumber = '+542346505040'; // Número fijo
-    this.authDir = './auth_info_baileys_542346505040';
+    this.phoneNumber = phoneNumber;
+    this.authDir = authDir;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
   }
 
   async initialize() {
     try {
-      logger.info('🚀 Inicializando WhatsApp Service...');
+      logger.info(`🚀 Inicializando WhatsApp Service para ${this.phoneNumber}...`);
       
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
       const { version, isLatest } = await fetchLatestBaileysVersion();
@@ -39,14 +41,14 @@ class WhatsAppService {
         auth: state,
         printQRInTerminal: false,
         logger: createBaileysLogger(),
-        browser: ['WhatsApp Service', 'Chrome', '1.0.0']
+        browser: [`WhatsApp Service ${this.phoneNumber}`, 'Chrome', '1.0.0']
       });
 
       this.setupEventHandlers(saveCreds);
       
-      logger.info('✅ WhatsApp Service inicializado');
+      logger.info(`✅ WhatsApp Service inicializado para ${this.phoneNumber}`);
     } catch (error) {
-      logger.error('Error inicializando WhatsApp Service:', error);
+      logger.error(`Error inicializando WhatsApp Service para ${this.phoneNumber}:`, error);
       throw error;
     }
   }
@@ -62,21 +64,24 @@ class WhatsAppService {
       if (connection === 'close') {
         const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
         
-        if (shouldReconnect) {
-          logger.info('🔄 Reconectando...');
+        if (shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          logger.info(`🔄 Reconectando ${this.phoneNumber} (intento ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
           this.connectionState = 'reconnecting';
           this.isConnected = false;
-          setTimeout(() => this.initialize(), 3000);
+          setTimeout(() => this.initialize(), 3000 * this.reconnectAttempts);
         } else {
-          logger.info('❌ Conexión cerrada permanentemente');
+          logger.info(`❌ Conexión cerrada permanentemente para ${this.phoneNumber}`);
           this.connectionState = 'disconnected';
           this.isConnected = false;
+          this.reconnectAttempts = 0;
         }
       } else if (connection === 'open') {
-        logger.info('✅ WhatsApp conectado exitosamente');
+        logger.info(`✅ WhatsApp conectado exitosamente para ${this.phoneNumber}`);
         this.isConnected = true;
         this.connectionState = 'connected';
         this.qrCode = null;
+        this.reconnectAttempts = 0;
       }
     });
 
@@ -87,11 +92,20 @@ class WhatsAppService {
     try {
       this.connectionState = 'qr_ready';
       this.qrCode = await QRCode.toDataURL(qr);
-      logger.info('📱 Código QR generado');
+      logger.info(`📱 Código QR generado para ${this.phoneNumber}`);
     } catch (error) {
-      logger.error('Error generando QR:', error);
-      this.qrCode = qr; // Fallback al string
+      logger.error(`Error generando QR para ${this.phoneNumber}:`, error);
+      this.qrCode = qr;
     }
+  }
+
+  getConnectionState() {
+    return {
+      isConnected: this.isConnected,
+      state: this.connectionState,
+      qrCode: this.qrCode,
+      phoneNumber: this.phoneNumber
+    };
   }
 
   async sendMessage(to, message) {
@@ -123,15 +137,6 @@ class WhatsAppService {
       logger.error('Error enviando mensaje:', error);
       throw error;
     }
-  }
-
-  getConnectionState() {
-    return {
-      isConnected: this.isConnected,
-      state: this.connectionState,
-      qrCode: this.qrCode,
-      phoneNumber: this.phoneNumber
-    };
   }
 
   async gracefulShutdown() {

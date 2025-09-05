@@ -3,14 +3,14 @@ const cors = require('cors');
 const helmet = require('helmet');
 require('dotenv').config();
 
-const WhatsAppService = require('./services/whatsappService');
+const WhatsAppManager = require('./services/whatsappManager');
 const logger = require('./utils/logger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Inicializar servicio de WhatsApp
-const whatsappService = new WhatsAppService();
+// Inicializar manager de WhatsApp
+const whatsappManager = new WhatsAppManager();
 
 // Middleware básico
 app.use(helmet());
@@ -107,82 +107,145 @@ const authenticate = (req, res, next) => {
 
 // 🟢 Endpoint de salud SIN autenticación
 app.get('/api/health', (req, res) => {
-  const status = whatsappService.getConnectionState();
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    whatsapp: status
-  });
+  try {
+    const allSessions = whatsappManager.getAllInstances();
+    const sessionCount = Object.keys(allSessions).length;
+    
+    res.json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      whatsapp: {
+        totalSessions: sessionCount,
+        sessions: allSessions
+      },
+      server: {
+        memory: process.memoryUsage(),
+        version: process.version,
+        platform: process.platform
+      }
+    });
+  } catch (error) {
+    logger.error('Error en health check:', error);
+    res.status(500).json({
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      error: 'Error interno del servidor'
+    });
+  }
 });
 
 // 🔐 Endpoints CON autenticación
-app.get('/api/whatsapp/session/:phoneNumber/status', authenticate, (req, res) => {
-  const phoneNumber = req.params.phoneNumber;
-  // Validar que sea el número correcto
-  if (phoneNumber !== '542346505040') {
-    return res.status(400).json({ error: 'Número de teléfono no válido' });
-  }
-  
-  const status = whatsappService.getConnectionState();
-  res.json({
-    phoneNumber: `+${phoneNumber}`,
-    ...status
-  });
-});
-
-// Cambiar esta línea en el endpoint QR (línea 66 aproximadamente):
-app.get('/api/whatsapp/session/:phoneNumber/qr', authenticate, (req, res) => {
-  const phoneNumber = req.params.phoneNumber;
-  if (phoneNumber !== '542346505040') {
-    return res.status(400).json({ error: 'Número de teléfono no válido' });
-  }
-  
-  // Cambiar de whatsappService.getQRCode() a:
-  const connectionState = whatsappService.getConnectionState();
-  const qrCode = connectionState.qrCode;
-  
-  if (!qrCode) {
-    return res.status(404).json({ 
-      error: 'QR no disponible', 
-      state: connectionState.state,
-      message: 'El QR se genera automáticamente al inicializar. Espera unos segundos e intenta de nuevo.' 
+// Endpoint para obtener estado de una sesión específica
+app.get('/api/whatsapp/session/:phoneNumber/status', authenticate, async (req, res) => {
+  try {
+    const { phoneNumber } = req.params;
+    const instance = await whatsappManager.getInstance(phoneNumber);
+    const state = instance.getConnectionState();
+    
+    res.json({
+      success: true,
+      data: state
+    });
+  } catch (error) {
+    logger.error('Error obteniendo estado:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor'
     });
   }
-  
-  res.json({ 
-    qrCode, 
-    phoneNumber: `+${phoneNumber}`,
-    state: connectionState.state
-  });
 });
 
-app.post('/api/whatsapp/session/:phoneNumber/send-message', authenticate, async (req, res) => {
-  const phoneNumber = req.params.phoneNumber;
-  if (phoneNumber !== '542346505040') {
-    return res.status(400).json({ error: 'Número de teléfono no válido' });
-  }
-  
+// Endpoint para obtener QR de una sesión específica
+app.get('/api/whatsapp/session/:phoneNumber/qr', authenticate, async (req, res) => {
   try {
+    const { phoneNumber } = req.params;
+    const instance = await whatsappManager.getInstance(phoneNumber);
+    const state = instance.getConnectionState();
+    
+    if (state.qrCode) {
+      res.json({
+        success: true,
+        qrCode: state.qrCode,
+        state: state.state
+      });
+    } else {
+      res.json({
+        success: false,
+        message: 'QR no disponible',
+        state: state.state
+      });
+    }
+  } catch (error) {
+    logger.error('Error obteniendo QR:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
+
+// Endpoint para enviar mensaje desde una sesión específica
+app.post('/api/whatsapp/session/:phoneNumber/send-message', authenticate, async (req, res) => {
+  try {
+    const { phoneNumber } = req.params;
     const { to, message } = req.body;
     
     if (!to || !message) {
       return res.status(400).json({
         success: false,
-        error: 'Campos "to" y "message" son requeridos'
+        error: 'Faltan parámetros requeridos: to, message'
       });
     }
     
-    const result = await whatsappService.sendMessage(to, message);
+    const instance = await whatsappManager.getInstance(phoneNumber);
+    const result = await instance.sendMessage(to, message);
     
     res.json({
       success: true,
       data: result
     });
   } catch (error) {
+    logger.error('Error enviando mensaje:', error);
     res.status(500).json({
       success: false,
       error: error.message
+    });
+  }
+});
+
+// Nuevo endpoint para listar todas las sesiones
+app.get('/api/whatsapp/sessions', authenticate, (req, res) => {
+  try {
+    const sessions = whatsappManager.getAllInstances();
+    res.json({
+      success: true,
+      data: sessions
+    });
+  } catch (error) {
+    logger.error('Error obteniendo sesiones:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
+
+// Endpoint para cerrar una sesión específica
+app.delete('/api/whatsapp/session/:phoneNumber', authenticate, async (req, res) => {
+  try {
+    const { phoneNumber } = req.params;
+    await whatsappManager.closeInstance(phoneNumber);
+    
+    res.json({
+      success: true,
+      message: `Sesión ${phoneNumber} cerrada exitosamente`
+    });
+  } catch (error) {
+    logger.error('Error cerrando sesión:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor'
     });
   }
 });
@@ -201,12 +264,11 @@ app.use((req, res) => {
 // Iniciar servidor
 async function startServer() {
   try {
-    await whatsappService.initialize();
+    // Cargar instancias existentes
+    await whatsappManager.loadExistingInstances();
     
     app.listen(PORT, () => {
       logger.info(`🚀 Servidor iniciado en puerto ${PORT}`);
-      logger.info(`📱 WhatsApp Service para +542346505040`);
-      logger.info(`🔑 Usa: Authorization: Bearer ${process.env.API_TOKEN || 'mi-token-secreto-2024'}`);
     });
   } catch (error) {
     logger.error('Error iniciando servidor:', error);
@@ -217,13 +279,13 @@ async function startServer() {
 // Manejo de cierre graceful
 process.on('SIGTERM', async () => {
   logger.info('🔄 Cerrando servidor...');
-  await whatsappService.gracefulShutdown();
+  await whatsappManager.closeAllInstances();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   logger.info('🔄 Cerrando servidor...');
-  await whatsappService.gracefulShutdown();
+  await whatsappManager.closeAllInstances();
   process.exit(0);
 });
 
