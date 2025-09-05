@@ -1,14 +1,25 @@
 {
-  "name": "nodejs-app",
+  "name": "whatsapp-simple-service",
   "version": "1.0.0",
-  "description": "A minimal Node.js web application.",
+  "description": "Servicio simple de WhatsApp con una sola conexión",
   "main": "app.js",
-  "author": "alphasec",
-  "license": "MIT",
-  "dependencies": {
-    "express": "^4.19.2"
-  },
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "dev": "NODE_ENV=development nodemon app.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.8",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "dotenv": "^16.4.5",
+    "winston": "^3.11.0",
+    "qrcode": "^1.5.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
