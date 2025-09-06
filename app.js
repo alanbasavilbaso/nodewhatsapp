@@ -250,6 +250,84 @@ app.delete('/api/whatsapp/session/:phoneNumber', authenticate, async (req, res) 
   }
 });
 
+// Endpoint para enviar templates de citas médicas
+app.post('/api/whatsapp/session/:phoneNumber/send-template', authenticate, async (req, res) => {
+  try {
+    const { phoneNumber } = req.params;
+    const { appointmentId, phone, messageType, appointmentData, confirmUrl, cancelUrl } = req.body;
+    
+    // Validar datos requeridos
+    if (!appointmentId || !phone || !messageType || !appointmentData || !confirmUrl || !cancelUrl) {
+      return res.status(400).json({
+        success: false,
+        error: 'Faltan parámetros requeridos: appointmentId, phone, messageType, appointmentData, confirmUrl, cancelUrl',
+        appointmentId: appointmentId || null,
+        phone: phone || null
+      });
+    }
+    
+    // Validar messageType
+    const validMessageTypes = ['confirmation', 'reminder', 'urgent'];
+    if (!validMessageTypes.includes(messageType)) {
+      return res.status(400).json({
+        success: false,
+        error: `messageType debe ser uno de: ${validMessageTypes.join(', ')}`,
+        appointmentId,
+        phone
+      });
+    }
+    
+    // Validar appointmentData
+    const requiredFields = ['patientName', 'serviceName', 'professionalName', 'date', 'time', 'duration', 'locationName', 'locationAddress'];
+    const missingFields = requiredFields.filter(field => !appointmentData[field]);
+    
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Faltan campos en appointmentData: ${missingFields.join(', ')}`,
+        appointmentId,
+        phone
+      });
+    }
+    
+    // Obtener instancia de WhatsApp
+    const instance = await whatsappManager.getInstance(phoneNumber);
+    
+    // Preparar datos del template
+    const templateData = {
+      messageType,
+      appointmentData,
+      confirmUrl,
+      cancelUrl
+    };
+    
+    // Enviar template
+    const result = await instance.sendTemplate(phone, templateData);
+    
+    // Logging
+    logger.info(`📋 Template enviado - ID: ${appointmentId}, Tipo: ${messageType}, Teléfono: ${phone}, Estado: éxito`);
+    
+    res.json({
+      success: true,
+      messageId: result.messageId,
+      phone: phone,
+      appointmentId: appointmentId,
+      messageType: messageType,
+      sentAt: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    logger.error(`❌ Error enviando template - ID: ${req.body?.appointmentId}, Teléfono: ${req.body?.phone}, Error:`, error);
+    
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      appointmentId: req.body?.appointmentId || null,
+      phone: req.body?.phone || null
+    });
+  }
+});
+
 // Manejo de errores
 app.use((err, req, res, next) => {
   logger.error('Error no manejado:', err);
