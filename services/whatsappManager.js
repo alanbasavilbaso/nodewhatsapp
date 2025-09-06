@@ -1,7 +1,7 @@
-const WhatsAppService = require('./whatsappService');
-const logger = require('../utils/logger');
-const path = require('path');
-const fs = require('fs');
+import WhatsAppService from './whatsappService.js';
+import logger from '../utils/logger.js';
+import path from 'path';
+import fs from 'fs';
 
 class WhatsAppManager {
   constructor() {
@@ -104,4 +104,5 @@ class WhatsAppManager {
   }
 }
 
-module.exports = WhatsAppManager;
+// Cambiar de module.exports a export default
+export default WhatsAppManager;

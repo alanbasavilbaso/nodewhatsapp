@@ -1,10 +1,11 @@
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-require('dotenv').config();
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import dotenv from 'dotenv';
+import WhatsAppManager from './services/whatsappManager.js';
+import logger from './utils/logger.js';
 
-const WhatsAppManager = require('./services/whatsappManager');
-const logger = require('./utils/logger');
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;

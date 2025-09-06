@@ -1,6 +1,6 @@
-const { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
-const QRCode = require('qrcode');
-const logger = require('../utils/logger');
+import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } from '@whiskeysockets/baileys';
+import QRCode from 'qrcode';
+import logger from '../utils/logger.js';
 
 function createBaileysLogger() {
   return {
@@ -292,4 +292,5 @@ class WhatsAppService {
   }
 }
 
-module.exports = WhatsAppService;
+// Cambiar de module.exports a export default
+export default WhatsAppService;

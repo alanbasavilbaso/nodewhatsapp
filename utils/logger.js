@@ -1,6 +1,12 @@
-const winston = require('winston');
-const path = require('path');
-const fs = require('fs');
+import winston from 'winston';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+// Obtener __dirname en ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Crear directorio de logs si no existe
 const logsDir = path.join(__dirname, '..', 'logs');
@@ -59,11 +65,11 @@ logger.exceptions.handle(
   })
 );
 
-// Manejar rechazos de promesas no capturadas
+// Manejar promesas rechazadas
 logger.rejections.handle(
   new winston.transports.File({
     filename: path.join(logsDir, 'rejections.log')
   })
 );
 
-module.exports = logger;
+export default logger;
