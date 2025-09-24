@@ -75,13 +75,18 @@ class WhatsAppService {
           this.connectionState = 'disconnected';
           this.isConnected = false;
           this.reconnectAttempts = 0;
+          this.qrCode = null; // Limpiar QR cuando se desconecta permanentemente
         }
       } else if (connection === 'open') {
         logger.info(`✅ WhatsApp conectado exitosamente para ${this.phoneNumber}`);
         this.isConnected = true;
         this.connectionState = 'connected';
-        this.qrCode = null;
+        this.qrCode = null; // Limpiar QR cuando se conecta
         this.reconnectAttempts = 0;
+      } else if (connection === 'connecting') {
+        logger.info(`🔄 Conectando ${this.phoneNumber}...`);
+        this.connectionState = 'connecting';
+        this.isConnected = false;
       }
     });
 
@@ -104,7 +109,12 @@ class WhatsAppService {
       isConnected: this.isConnected,
       state: this.connectionState,
       qrCode: this.qrCode,
-      phoneNumber: this.phoneNumber
+      phoneNumber: this.phoneNumber,
+      reconnectAttempts: this.reconnectAttempts,
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      lastUpdate: new Date().toISOString(),
+      needsQR: this.connectionState === 'qr_ready' && this.qrCode !== null,
+      canConnect: !this.isConnected && this.connectionState !== 'connecting'
     };
   }
 

@@ -157,31 +157,84 @@ app.get('/api/whatsapp/session/:phoneNumber/status', authenticate, async (req, r
   }
 });
 
-// Endpoint para obtener QR de una sesión específica
+// Endpoint inteligente para obtener QR - maneja automáticamente la conexión
 app.get('/api/whatsapp/session/:phoneNumber/qr', authenticate, async (req, res) => {
   try {
     const { phoneNumber } = req.params;
-    const instance = await whatsappManager.getInstance(phoneNumber);
-    const state = instance.getConnectionState();
     
-    if (state.qrCode) {
-      res.json({
-        success: true,
-        qrCode: state.qrCode,
-        state: state.state
-      });
-    } else {
-      res.json({
+    // Intentar obtener la instancia existente
+    let instance;
+    let state;
+    
+    try {
+      instance = await whatsappManager.getInstance(phoneNumber);
+      state = instance.getConnectionState();
+    } catch (error) {
+      // Si no existe la instancia, se creará automáticamente
+      logger.info(`Creando nueva instancia para ${phoneNumber}`);
+      instance = await whatsappManager.getInstance(phoneNumber);
+      state = instance.getConnectionState();
+    }
+    
+    // Si ya está conectado, no necesita QR
+    if (state.isConnected && state.state === 'connected') {
+      return res.json({
         success: false,
-        message: 'QR no disponible',
-        state: state.state
+        message: 'QR no disponible - Ya está conectado',
+        state: 'connected',
+        phoneNumber: phoneNumber
       });
     }
+    
+    // Si está desconectado o con error, forzar reconexión
+    if (state.state === 'disconnected' || state.state === 'error') {
+      logger.info(`🔄 Forzando reconexión para ${phoneNumber} - Estado: ${state.state}`);
+      
+      // Cerrar instancia actual y crear nueva
+      await whatsappManager.closeInstance(phoneNumber);
+      instance = await whatsappManager.getInstance(phoneNumber);
+      state = instance.getConnectionState();
+      
+      // Esperar un momento para que se genere el QR
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      state = instance.getConnectionState();
+    }
+    
+    // Si hay QR disponible, devolverlo
+    if (state.qrCode) {
+      return res.json({
+        success: true,
+        message: 'QR disponible - Escanea para conectar',
+        state: state.state,
+        qr: state.qrCode,
+        phoneNumber: phoneNumber
+      });
+    }
+    
+    // Si está en proceso de conexión pero aún no hay QR
+    if (state.state === 'connecting' || state.state === 'reconnecting') {
+      return res.json({
+        success: false,
+        message: 'Conectando... Intenta nuevamente en unos segundos',
+        state: state.state,
+        phoneNumber: phoneNumber
+      });
+    }
+    
+    // Estado por defecto
+    return res.json({
+      success: false,
+      message: 'QR no disponible en este momento',
+      state: state.state,
+      phoneNumber: phoneNumber
+    });
+    
   } catch (error) {
-    logger.error('Error obteniendo QR:', error);
+    logger.error('Error en endpoint QR inteligente:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Error interno del servidor',
+      message: 'No se pudo procesar la solicitud de QR'
     });
   }
 });
