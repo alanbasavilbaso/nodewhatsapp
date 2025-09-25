@@ -25,7 +25,7 @@ class WhatsAppManager {
 
     // Crear nueva instancia
     const authDir = path.join(this.authBaseDir, cleanNumber);
-    const instance = new WhatsAppService(cleanNumber, authDir);
+    const instance = new WhatsAppService(cleanNumber, authDir, this);
     
     this.instances.set(cleanNumber, instance);
     
@@ -60,6 +60,31 @@ class WhatsAppManager {
       await instance.gracefulShutdown();
       this.instances.delete(cleanNumber);
       logger.info(`🔄 Instancia cerrada para ${cleanNumber}`);
+    }
+  }
+
+  // Eliminar instancia completamente (incluyendo archivos de auth)
+  async removeInstanceCompletely(phoneNumber) {
+    const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+    const instance = this.instances.get(cleanNumber);
+    
+    if (instance) {
+      // Cerrar la instancia
+      await instance.gracefulShutdown();
+      this.instances.delete(cleanNumber);
+      
+      // Eliminar archivos de autenticación
+      const authDir = path.join(this.authBaseDir, cleanNumber);
+      if (fs.existsSync(authDir)) {
+        try {
+          fs.rmSync(authDir, { recursive: true, force: true });
+          logger.info(`🗑️ Archivos de autenticación eliminados para ${cleanNumber}`);
+        } catch (error) {
+          logger.error(`❌ Error eliminando archivos de auth para ${cleanNumber}:`, error);
+        }
+      }
+      
+      logger.info(`🔄 Instancia eliminada completamente para ${cleanNumber}`);
     }
   }
 

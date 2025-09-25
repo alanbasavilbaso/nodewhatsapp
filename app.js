@@ -284,11 +284,11 @@ app.post('/api/whatsapp/session/:phoneNumber/send-template', authenticate, async
     const { phoneNumber } = req.params;
     const { appointmentId, phone, messageType, appointmentData, confirmUrl, cancelUrl } = req.body;
     
-    // Validar datos requeridos
-    if (!appointmentId || !phone || !messageType || !appointmentData || !confirmUrl || !cancelUrl) {
+    // Validar datos requeridos (confirmUrl y cancelUrl son opcionales)
+    if (!appointmentId || !phone || !messageType || !appointmentData) {
       return res.status(400).json({
         success: false,
-        error: 'Faltan parámetros requeridos: appointmentId, phone, messageType, appointmentData, confirmUrl, cancelUrl',
+        error: 'Faltan parámetros requeridos: appointmentId, phone, messageType, appointmentData',
         appointmentId: appointmentId || null,
         phone: phone || null
       });
@@ -321,13 +321,19 @@ app.post('/api/whatsapp/session/:phoneNumber/send-template', authenticate, async
     // Obtener instancia de WhatsApp
     const instance = await whatsappManager.getInstance(phoneNumber);
     
-    // Preparar datos del template
+    // Preparar datos del template (solo incluir URLs si están presentes)
     const templateData = {
       messageType,
-      appointmentData,
-      confirmUrl,
-      cancelUrl
+      appointmentData
     };
+    
+    // Agregar URLs solo si están presentes
+    if (confirmUrl) {
+      templateData.confirmUrl = confirmUrl;
+    }
+    if (cancelUrl) {
+      templateData.cancelUrl = cancelUrl;
+    }
     
     // Enviar template
     const result = await instance.sendTemplate(phone, templateData);
@@ -370,8 +376,8 @@ app.use((req, res) => {
 // Iniciar servidor
 async function startServer() {
   try {
-    // Cargar instancias existentes
-    await whatsappManager.loadExistingInstances();
+    // Cargar instancias existentes - COMENTADO para evitar carga automática
+    // await whatsappManager.loadExistingInstances();
     
     app.listen(PORT, () => {
       logger.info(`🚀 Servidor iniciado en puerto ${PORT}`);
