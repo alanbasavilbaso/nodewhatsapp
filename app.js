@@ -35,8 +35,7 @@ const authenticate = (req, res, next) => {
   if (process.env.REQUIRE_USER_AGENT === 'true') {
     if (!userAgent || !allowedUserAgents.some(agent => userAgent.includes(agent))) {
       return res.status(403).json({ 
-        error: 'User-Agent no permitido',
-        required: 'User-Agent debe contener uno de: ' + allowedUserAgents.join(', ')
+        error: 'Acceso no autorizado'
       });
     }
   }
