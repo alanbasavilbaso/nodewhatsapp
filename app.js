@@ -153,7 +153,7 @@ app.get('/api/whatsapp/session/:phoneNumber/qr', authenticate, async (req, res) 
     // Si ya está conectado, no necesita QR
     if (state.isConnected && state.state === 'connected') {
       return res.json({
-        success: false,
+        success: true,
         message: 'QR no disponible - Ya está conectado',
         state: 'connected',
         phoneNumber: phoneNumber
