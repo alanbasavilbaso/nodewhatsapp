@@ -24,9 +24,15 @@ class WhatsAppService {
     this.phoneNumber = phoneNumber;
     this.authDir = authDir;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
+    this.maxReconnectAttempts = 2; // Cambiado a 2 intentos
     this.manager = manager;
-    this.isBusinessAccount = false; // Nueva propiedad para detectar cuenta business
+    this.isBusinessAccount = false;
+    // Nuevas propiedades para reconexión automática
+    this.reconnectTimeout = null;
+    this.isReconnecting = false;
+    this.lastReconnectTime = 0;
+    this.minReconnectDelay = 2000; // 2 segundos mínimo
+    this.maxReconnectDelay = 10000; // 10 segundos máximo (reducido también)
   }
 
   async initialize() {
@@ -65,6 +71,9 @@ class WhatsAppService {
       
       if (connection === 'close') {
         const disconnectReason = (lastDisconnect?.error)?.output?.statusCode;
+        const errorCode = lastDisconnect?.error?.output?.payload?.error;
+        
+        logger.info(`❌ Conexión cerrada para ${this.phoneNumber} - Razón: ${disconnectReason}, Error: ${errorCode}`);
         
         if (disconnectReason === DisconnectReason.loggedOut) {
           // Sesión cerrada desde el celular - eliminar completamente
@@ -73,21 +82,41 @@ class WhatsAppService {
           this.isConnected = false;
           this.reconnectAttempts = 0;
           this.qrCode = null;
-          this.isBusinessAccount = false; // Reset business status
+          this.isBusinessAccount = false;
+          this.isReconnecting = false;
+          
+          // Limpiar timeout de reconexión si existe
+          if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+          }
           
           // Notificar al manager para que elimine esta instancia completamente
           if (this.manager) {
             this.manager.removeInstanceCompletely(this.phoneNumber);
           }
+        } else if (disconnectReason === 515 || errorCode === '515') {
+          // Error 515 específico - reconexión automática
+          logger.warn(`⚠️ Error 515 detectado para ${this.phoneNumber} - Iniciando reconexión automática`);
+          this.connectionState = 'reconnecting';
+          this.isConnected = false;
+          this.qrCode = null;
+          this.scheduleReconnect();
+        } else if (this.shouldAttemptReconnect(disconnectReason)) {
+          // Otros errores recuperables
+          logger.info(`🔄 Desconexión recuperable para ${this.phoneNumber} - Programando reconexión`);
+          this.connectionState = 'reconnecting';
+          this.isConnected = false;
+          this.qrCode = null;
+          this.scheduleReconnect();
         } else {
-          // Para cualquier otra desconexión, simplemente marcar como desconectado
-          // NO reconectar automáticamente
-          logger.info(`❌ Conexión cerrada para ${this.phoneNumber} - Razón: ${disconnectReason}`);
+          // Desconexión no recuperable
+          logger.info(`❌ Desconexión no recuperable para ${this.phoneNumber}`);
           this.connectionState = 'disconnected';
           this.isConnected = false;
           this.qrCode = null;
-          this.isBusinessAccount = false; // Reset business status
-          // No resetear reconnectAttempts para mantener el historial
+          this.isBusinessAccount = false;
+          this.isReconnecting = false;
         }
       } else if (connection === 'open') {
         logger.info(`✅ WhatsApp conectado exitosamente para ${this.phoneNumber}`);
@@ -95,6 +124,14 @@ class WhatsAppService {
         this.connectionState = 'connected';
         this.qrCode = null;
         this.reconnectAttempts = 0;
+        this.isReconnecting = false;
+        this.lastReconnectTime = 0;
+        
+        // Limpiar timeout de reconexión si existe
+        if (this.reconnectTimeout) {
+          clearTimeout(this.reconnectTimeout);
+          this.reconnectTimeout = null;
+        }
         
         // Detectar si es cuenta business
         this.detectBusinessAccount();
@@ -105,7 +142,101 @@ class WhatsAppService {
       }
     });
 
+    // Manejo de errores de stream (como el error 515)
+    this.client.ev.on('stream:error', (error) => {
+      logger.error(`🚨 Stream error para ${this.phoneNumber}:`, error);
+      
+      // Si es error 515, programar reconexión
+      if (error.code === '515' || error.message?.includes('515')) {
+        logger.warn(`⚠️ Error de stream 515 detectado para ${this.phoneNumber}`);
+        this.connectionState = 'reconnecting';
+        this.scheduleReconnect();
+      }
+    });
+
     this.client.ev.on('creds.update', saveCreds);
+  }
+
+  // Determinar si se debe intentar reconectar basado en el código de desconexión
+  shouldAttemptReconnect(disconnectReason) {
+    const reconnectableReasons = [
+      DisconnectReason.connectionClosed,
+      DisconnectReason.connectionLost,
+      DisconnectReason.connectionReplaced,
+      DisconnectReason.timedOut,
+      DisconnectReason.restartRequired,
+      515 // Error 515 específico
+    ];
+    
+    return reconnectableReasons.includes(disconnectReason);
+  }
+
+  // Programar reconexión con backoff exponencial
+  scheduleReconnect() {
+    // Evitar múltiples reconexiones simultáneas
+    if (this.isReconnecting) {
+      logger.info(`⏳ Ya hay una reconexión en progreso para ${this.phoneNumber}`);
+      return;
+    }
+
+    // Verificar límite de intentos
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      logger.error(`❌ Máximo de intentos de reconexión alcanzado para ${this.phoneNumber} (${this.maxReconnectAttempts})`);
+      this.connectionState = 'failed';
+      this.isReconnecting = false;
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+
+    // Calcular delay: 2s para el primer intento, 5s para el segundo
+    const delay = this.reconnectAttempts === 1 ? 2000 : 5000;
+
+    logger.info(`🔄 Programando reconexión ${this.reconnectAttempts}/${this.maxReconnectAttempts} para ${this.phoneNumber} en ${delay/1000}s`);
+
+    this.reconnectTimeout = setTimeout(async () => {
+      try {
+        await this.attemptReconnect();
+      } catch (error) {
+        logger.error(`❌ Error durante reconexión para ${this.phoneNumber}:`, error);
+        this.isReconnecting = false;
+        
+        // Programar siguiente intento si no se alcanzó el límite
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.scheduleReconnect();
+        } else {
+          this.connectionState = 'failed';
+        }
+      }
+    }, delay);
+  }
+
+  // Intentar reconexión
+  async attemptReconnect() {
+    logger.info(`🔄 Intentando reconexión ${this.reconnectAttempts}/${this.maxReconnectAttempts} para ${this.phoneNumber}`);
+    
+    try {
+      // Cerrar cliente existente si existe
+      if (this.client) {
+        try {
+          await this.client.end();
+        } catch (error) {
+          logger.warn(`⚠️ Error cerrando cliente anterior para ${this.phoneNumber}:`, error.message);
+        }
+      }
+
+      // Reinicializar
+      await this.initialize();
+      
+      this.lastReconnectTime = Date.now();
+      logger.info(`✅ Reconexión iniciada exitosamente para ${this.phoneNumber}`);
+      
+    } catch (error) {
+      logger.error(`❌ Error en reconexión para ${this.phoneNumber}:`, error);
+      this.isReconnecting = false;
+      throw error;
+    }
   }
 
   // Nuevo método para detectar cuenta business
