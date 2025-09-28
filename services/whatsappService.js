@@ -43,7 +43,7 @@ class WhatsAppService {
         auth: state,
         printQRInTerminal: false,
         logger: createBaileysLogger(),
-        browser: [`TurnoBoost`, 'Chrome', '1.0.0']
+        browser: [`Chrome`, 'Chrome', '120.0.0.0']
       });
 
       this.setupEventHandlers(saveCreds);
