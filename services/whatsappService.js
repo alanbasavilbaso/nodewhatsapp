@@ -3,7 +3,8 @@ import QRCode from 'qrcode';
 import logger from '../utils/logger.js';
 
 function createBaileysLogger() {
-  return {
+  // Logger completamente silencioso
+  const silentLogger = {
     level: 'silent',
     trace: () => {},
     debug: () => {},
@@ -11,7 +12,56 @@ function createBaileysLogger() {
     warn: () => {},
     error: () => {},
     fatal: () => {},
-    child: () => createBaileysLogger()
+    child: () => silentLogger
+  };
+
+  return silentLogger;
+}
+
+// Función para silenciar logs específicos de libsignal
+function suppressLibsignalLogs() {
+  const originalConsoleError = console.error;
+  const originalConsoleLog = console.log;
+  const originalConsoleWarn = console.warn;
+
+  // Lista de mensajes a silenciar
+  const suppressPatterns = [
+    'Failed to decrypt message with any known session',
+    'Session error:Error: Bad MAC',
+    'Bad MAC',
+    'Closing open session in favor of incoming prekey bundle',
+    'Closing session: SessionEntry'
+  ];
+
+  // Interceptar console.error
+  console.error = (...args) => {
+    const message = args.join(' ');
+    if (!suppressPatterns.some(pattern => message.includes(pattern))) {
+      originalConsoleError.apply(console, args);
+    }
+  };
+
+  // Interceptar console.log
+  console.log = (...args) => {
+    const message = args.join(' ');
+    if (!suppressPatterns.some(pattern => message.includes(pattern))) {
+      originalConsoleLog.apply(console, args);
+    }
+  };
+
+  // Interceptar console.warn
+  console.warn = (...args) => {
+    const message = args.join(' ');
+    if (!suppressPatterns.some(pattern => message.includes(pattern))) {
+      originalConsoleWarn.apply(console, args);
+    }
+  };
+
+  // Retornar función para restaurar logs originales si es necesario
+  return () => {
+    console.error = originalConsoleError;
+    console.log = originalConsoleLog;
+    console.warn = originalConsoleWarn;
   };
 }
 
@@ -24,15 +74,18 @@ class WhatsAppService {
     this.phoneNumber = phoneNumber;
     this.authDir = authDir;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 2; // Cambiado a 2 intentos
+    this.maxReconnectAttempts = 2;
     this.manager = manager;
     this.isBusinessAccount = false;
     // Nuevas propiedades para reconexión automática
     this.reconnectTimeout = null;
     this.isReconnecting = false;
     this.lastReconnectTime = 0;
-    this.minReconnectDelay = 2000; // 2 segundos mínimo
-    this.maxReconnectDelay = 10000; // 10 segundos máximo (reducido también)
+    this.minReconnectDelay = 2000;
+    this.maxReconnectDelay = 10000;
+    
+    // Silenciar logs de libsignal
+    this.restoreConsole = suppressLibsignalLogs();
   }
 
   async initialize() {
@@ -532,9 +585,24 @@ class WhatsAppService {
   }
 
   formatAppointmentDate(dateStr) {
-    const date = new Date(dateStr);
+    // Parsear la fecha como está, sin conversión de zona horaria
+    // Asumiendo formato YYYY-MM-DD o similar
+    let date;
+    
+    if (dateStr.includes('-')) {
+      // Formato YYYY-MM-DD
+      const [year, month, day] = dateStr.split('-').map(Number);
+      date = new Date(year, month - 1, day); // month - 1 porque Date usa 0-11 para meses
+    } else {
+      // Si viene en otro formato, usar Date pero forzar UTC para evitar conversiones
+      date = new Date(dateStr + 'T00:00:00');
+    }
+    
+    // Para comparar con hoy y mañana, usar la misma lógica sin zona horaria
     const today = new Date();
-    const tomorrow = new Date(today);
+    const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    
+    const tomorrow = new Date(todayLocal);
     tomorrow.setDate(tomorrow.getDate() + 1);
     
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -545,9 +613,12 @@ class WhatsAppService {
     const day = date.getDate();
     const month = monthNames[date.getMonth()];
     
-    if (date.toDateString() === today.toDateString()) {
+    // Comparar solo año, mes y día (sin hora)
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    
+    if (dateOnly.getTime() === todayLocal.getTime()) {
       return `HOY - ${dayName} ${day} de ${month}`;
-    } else if (date.toDateString() === tomorrow.toDateString()) {
+    } else if (dateOnly.getTime() === tomorrow.getTime()) {
       return `MAÑANA - ${dayName} ${day} de ${month}`;
     } else {
       return `${dayName} ${day} de ${month}`;
@@ -731,14 +802,32 @@ class WhatsAppService {
   }
 
   async gracefulShutdown() {
-    if (this.client) {
-      logger.info('🔄 Cerrando conexión WhatsApp...');
-      // NO destruir la sesión, solo cerrar la conexión
-      this.client.end();
-      this.client = null;
-      this.isConnected = false;
-      this.connectionState = 'disconnected';
+    logger.info(`🛑 Cerrando conexión WhatsApp para ${this.phoneNumber}...`);
+    
+    // Limpiar timeout de reconexión
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
     }
+    
+    this.isReconnecting = false;
+    
+    if (this.client) {
+      try {
+        await this.client.end();
+        logger.info(`✅ Conexión cerrada exitosamente para ${this.phoneNumber}`);
+      } catch (error) {
+        logger.error(`❌ Error cerrando conexión para ${this.phoneNumber}:`, error);
+      }
+    }
+    
+    // Restaurar console original si es necesario
+    if (this.restoreConsole) {
+      this.restoreConsole();
+    }
+    
+    this.isConnected = false;
+    this.connectionState = 'disconnected';
   }
 }
 
