@@ -187,7 +187,7 @@ app.get('/api/whatsapp/session/:phoneNumber/qr', authenticate, async (req, res) 
       return res.json({
         success: true,
         message: 'QR disponible - Escanea para conectar',
-        qrCode: state.qrCode,
+        qr: state.qrCode,
         state: state.state,
         phoneNumber: phoneNumber,
         reconnectAttempts: state.reconnectAttempts,

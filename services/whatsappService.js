@@ -359,10 +359,14 @@ class WhatsAppService {
       isConnected: this.isConnected,
       state: this.connectionState,
       qrCode: this.qrCode,
+      phoneNumber: this.phoneNumber,
       reconnectAttempts: this.reconnectAttempts,
       maxReconnectAttempts: this.maxReconnectAttempts,
       isReconnecting: this.isReconnecting,
-      isBusinessAccount: this.isBusinessAccount
+      isBusinessAccount: this.isBusinessAccount,
+      lastUpdate: new Date().toISOString(),
+      needsQR: this.connectionState === 'qr_ready' && this.qrCode !== null,
+      canConnect: !this.isConnected && this.connectionState !== 'connecting'
     };
   }
 
