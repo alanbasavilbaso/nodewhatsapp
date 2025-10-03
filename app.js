@@ -160,16 +160,25 @@ app.get('/api/whatsapp/session/:phoneNumber/qr', authenticate, async (req, res) 
     }
     
     // Si está desconectado o con error, forzar reconexión
-    if (state.state === 'disconnected' || state.state === 'error') {
+    if (state.state === 'disconnected' || state.state === 'failed') {
       logger.info(`🔄 Forzando reconexión para ${phoneNumber} - Estado: ${state.state}`);
       
       // Cerrar instancia actual y crear nueva
       await whatsappManager.closeInstance(phoneNumber);
       instance = await whatsappManager.getInstance(phoneNumber);
-      state = instance.getConnectionState();
+      
+      // Solicitar QR explícitamente
+      instance.requestQRCode();
       
       // Esperar un momento para que se genere el QR
       await new Promise(resolve => setTimeout(resolve, 2000));
+      state = instance.getConnectionState();
+    } else {
+      // Para otros estados, solicitar QR explícitamente
+      instance.requestQRCode();
+      
+      // Esperar un momento para que se genere el QR si es necesario
+      await new Promise(resolve => setTimeout(resolve, 1000));
       state = instance.getConnectionState();
     }
     
@@ -178,36 +187,42 @@ app.get('/api/whatsapp/session/:phoneNumber/qr', authenticate, async (req, res) 
       return res.json({
         success: true,
         message: 'QR disponible - Escanea para conectar',
+        qrCode: state.qrCode,
         state: state.state,
-        qr: state.qrCode,
-        phoneNumber: phoneNumber
+        phoneNumber: phoneNumber,
+        reconnectAttempts: state.reconnectAttempts,
+        maxReconnectAttempts: state.maxReconnectAttempts
       });
     }
     
-    // Si está en proceso de conexión pero aún no hay QR
+    // Si está conectando o reconectando, informar el estado
     if (state.state === 'connecting' || state.state === 'reconnecting') {
       return res.json({
         success: false,
-        message: 'Conectando... Intenta nuevamente en unos segundos',
+        message: `Estado: ${state.state} - Intenta nuevamente en unos segundos`,
         state: state.state,
-        phoneNumber: phoneNumber
+        phoneNumber: phoneNumber,
+        reconnectAttempts: state.reconnectAttempts,
+        maxReconnectAttempts: state.maxReconnectAttempts
       });
     }
     
-    // Estado por defecto
+    // Estado no disponible
     return res.json({
       success: false,
       message: 'QR no disponible en este momento',
       state: state.state,
-      phoneNumber: phoneNumber
+      phoneNumber: phoneNumber,
+      reconnectAttempts: state.reconnectAttempts,
+      maxReconnectAttempts: state.maxReconnectAttempts
     });
     
   } catch (error) {
-    logger.error('Error en endpoint QR inteligente:', error);
+    logger.error('Error obteniendo QR:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor',
-      message: 'No se pudo procesar la solicitud de QR'
+      message: 'Error interno del servidor',
+      error: error.message
     });
   }
 });

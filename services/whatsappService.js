@@ -84,6 +84,10 @@ class WhatsAppService {
     this.minReconnectDelay = 2000;
     this.maxReconnectDelay = 10000;
     
+    // Propiedades para controlar generación de QR
+    this.shouldGenerateQR = false;
+    this.latestQR = null;
+    
     // Silenciar logs de libsignal
     this.restoreConsole = suppressLibsignalLogs();
   }
@@ -102,7 +106,14 @@ class WhatsAppService {
         auth: state,
         printQRInTerminal: false,
         logger: createBaileysLogger(),
-        browser: [`Chrome`, 'Chrome', '120.0.0.0']
+        browser: ['Chrome', 'Chrome', '120.0.0.0'],
+        generateHighQualityLinkPreview: true,
+        markOnlineOnConnect: false,
+        syncFullHistory: false,
+        defaultQueryTimeoutMs: 60000,
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000,
+        emitOwnEvents: false
       });
 
       this.setupEventHandlers(saveCreds);
@@ -118,8 +129,14 @@ class WhatsAppService {
     this.client.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect, qr } = update;
       
+      // Solo almacenar el QR, no generarlo automáticamente
       if (qr) {
-        this.generateQRCode(qr);
+        this.latestQR = qr;
+        // Solo generar QR si se solicitó explícitamente
+        if (this.shouldGenerateQR) {
+          this.generateQRCode(qr);
+          this.shouldGenerateQR = false; // Resetear flag después de generar
+        }
       }
       
       if (connection === 'close') {
@@ -135,6 +152,7 @@ class WhatsAppService {
           this.isConnected = false;
           this.reconnectAttempts = 0;
           this.qrCode = null;
+          this.latestQR = null;
           this.isBusinessAccount = false;
           this.isReconnecting = false;
           
@@ -212,16 +230,18 @@ class WhatsAppService {
 
   // Determinar si se debe intentar reconectar basado en el código de desconexión
   shouldAttemptReconnect(disconnectReason) {
-    const reconnectableReasons = [
+    const recoverableReasons = [
       DisconnectReason.connectionClosed,
       DisconnectReason.connectionLost,
-      DisconnectReason.connectionReplaced,
-      DisconnectReason.timedOut,
       DisconnectReason.restartRequired,
-      515 // Error 515 específico
+      DisconnectReason.timedOut,
+      408, // Request timeout
+      500, // Internal server error
+      502, // Bad gateway
+      503  // Service unavailable
     ];
     
-    return reconnectableReasons.includes(disconnectReason);
+    return recoverableReasons.includes(disconnectReason);
   }
 
   // Programar reconexión con backoff exponencial
@@ -232,7 +252,7 @@ class WhatsAppService {
       return;
     }
 
-    // Verificar límite de intentos
+    // Verificar límite de intentos ANTES de incrementar
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       logger.error(`❌ Máximo de intentos de reconexión alcanzado para ${this.phoneNumber} (${this.maxReconnectAttempts})`);
       this.connectionState = 'failed';
@@ -319,18 +339,30 @@ class WhatsAppService {
     }
   }
 
+  // Método para solicitar QR explícitamente
+  requestQRCode() {
+    this.shouldGenerateQR = true;
+    // Si ya hay un QR disponible, generarlo inmediatamente
+    if (this.latestQR) {
+      this.generateQRCode(this.latestQR);
+      this.shouldGenerateQR = false;
+    }
+  }
+
+  // Método para obtener QR sin generar uno nuevo
+  getQRCode() {
+    return this.qrCode;
+  }
+
   getConnectionState() {
     return {
       isConnected: this.isConnected,
       state: this.connectionState,
       qrCode: this.qrCode,
-      phoneNumber: this.phoneNumber,
       reconnectAttempts: this.reconnectAttempts,
       maxReconnectAttempts: this.maxReconnectAttempts,
-      lastUpdate: new Date().toISOString(),
-      needsQR: this.connectionState === 'qr_ready' && this.qrCode !== null,
-      canConnect: !this.isConnected && this.connectionState !== 'connecting',
-      isBusinessAccount: this.isBusinessAccount // Incluir información de business
+      isReconnecting: this.isReconnecting,
+      isBusinessAccount: this.isBusinessAccount
     };
   }
 
