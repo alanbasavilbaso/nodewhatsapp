@@ -1,5 +1,6 @@
-# Sesión de WhatsApp - Comentado para MVP (incluir en repo)
-# auth_info_baileys/
+# Sesión de WhatsApp - Excluir del repositorio
+auth_info_baileys/
+test_auth/
 
 # Logs
 logs/

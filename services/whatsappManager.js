@@ -6,12 +6,17 @@ import fs from 'fs';
 class WhatsAppManager {
   constructor() {
     this.instances = new Map(); // phoneNumber -> WhatsAppService
-    this.authBaseDir = './auth_info_baileys';
+    
+    // Usar variable de entorno para Railway o directorio local por defecto
+    this.authBaseDir = process.env.AUTH_DATA_DIR || './auth_info_baileys';
     
     // Crear directorio base si no existe
     if (!fs.existsSync(this.authBaseDir)) {
       fs.mkdirSync(this.authBaseDir, { recursive: true });
+      logger.info(`Created auth directory: ${this.authBaseDir}`);
     }
+    
+    logger.info(`Using auth directory: ${this.authBaseDir}`);
   }
 
   // Obtener o crear instancia para un número
