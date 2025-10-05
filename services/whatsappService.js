@@ -172,6 +172,7 @@ class WhatsAppService {
           this.connectionState = 'reconnecting';
           this.isConnected = false;
           this.qrCode = null;
+          this.latestQR = null;
           this.scheduleReconnect();
         } else if (this.shouldAttemptReconnect(disconnectReason)) {
           // Otros errores recuperables
@@ -179,6 +180,7 @@ class WhatsAppService {
           this.connectionState = 'reconnecting';
           this.isConnected = false;
           this.qrCode = null;
+          this.latestQR = null;
           this.scheduleReconnect();
         } else {
           // Desconexión no recuperable
@@ -186,16 +188,24 @@ class WhatsAppService {
           this.connectionState = 'disconnected';
           this.isConnected = false;
           this.qrCode = null;
+          this.latestQR = null;
           this.isBusinessAccount = false;
           this.isReconnecting = false;
+          
+          // Limpiar timeout de reconexión si existe
+          if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+          }
         }
       } else if (connection === 'open') {
         logger.info(`✅ WhatsApp conectado exitosamente para ${this.phoneNumber}`);
         this.isConnected = true;
         this.connectionState = 'connected';
         this.qrCode = null;
+        this.latestQR = null;
         this.reconnectAttempts = 0;
-        this.isReconnecting = false;
+        this.isReconnecting = false; // IMPORTANTE: Resetear flag de reconexión
         this.lastReconnectTime = 0;
         
         // Limpiar timeout de reconexión si existe
@@ -271,14 +281,22 @@ class WhatsAppService {
     this.reconnectTimeout = setTimeout(async () => {
       try {
         await this.attemptReconnect();
+        // Si llegamos aquí, la reconexión fue exitosa
+        logger.info(`✅ Reconexión completada exitosamente para ${this.phoneNumber}`);
+        this.isReconnecting = false;
       } catch (error) {
         logger.error(`❌ Error durante reconexión para ${this.phoneNumber}:`, error);
         this.isReconnecting = false;
         
         // Programar siguiente intento si no se alcanzó el límite
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
-          this.scheduleReconnect();
+          logger.info(`🔄 Programando siguiente intento de reconexión para ${this.phoneNumber}`);
+          // Pequeño delay antes del siguiente intento
+          setTimeout(() => {
+            this.scheduleReconnect();
+          }, 1000);
         } else {
+          logger.error(`❌ Todos los intentos de reconexión fallaron para ${this.phoneNumber}`);
           this.connectionState = 'failed';
         }
       }
@@ -299,15 +317,23 @@ class WhatsAppService {
         }
       }
 
+      // Limpiar timeout anterior si existe
+      if (this.reconnectTimeout) {
+        clearTimeout(this.reconnectTimeout);
+        this.reconnectTimeout = null;
+      }
+
       // Reinicializar
       await this.initialize();
       
       this.lastReconnectTime = Date.now();
       logger.info(`✅ Reconexión iniciada exitosamente para ${this.phoneNumber}`);
       
+      // NO resetear isReconnecting aquí - se hace en el setTimeout de scheduleReconnect
+      
     } catch (error) {
       logger.error(`❌ Error en reconexión para ${this.phoneNumber}:`, error);
-      this.isReconnecting = false;
+      // NO resetear isReconnecting aquí tampoco - se hace en el catch del setTimeout
       throw error;
     }
   }
@@ -664,7 +690,7 @@ class WhatsAppService {
   generateConfirmationMessage(data, formattedDate, confirmUrl, cancelUrl) {
     const { professionalName, patientName, serviceName, locationName, time, locationAddress } = data;
     
-    const baseMessage = `✅ *TURNO CONFIRMADO*
+    const baseMessage = `✅ *TURNO ASIGNADO*
 
     👤 *Paciente:* ${patientName}
     ✨ *Servicio:* ${serviceName}
@@ -781,7 +807,7 @@ class WhatsAppService {
   generateUrgentMessage(data, formattedDate, confirmUrl, cancelUrl) {
     const { professionalName, patientName, serviceName, locationName, time } = data;
     
-    const baseMessage = `🚨 *MENSAJE URGENTE*
+    const baseMessage = `
     ━━━━━━━━━━━━━━━━━━━━━
 
     ⚠️ *ATENCIÓN ${patientName}*
