@@ -689,10 +689,10 @@ class WhatsAppService {
 
   generateConfirmationMessage(data, formattedDate, confirmUrl, cancelUrl) {
     const { professionalName, patientName, serviceName, locationName, time, locationAddress } = data;
-    
-    const baseMessage = `📅 *TURNO ASIGNADO*
+    //👤 *Paciente:* ${patientName}
 
-    👤 *Paciente:* ${patientName}
+    const baseMessage = `📅 *TURNO ASIGNADO*
+    
     ✨ *Servicio:* ${serviceName}
     👨‍⚕️ *Profesional:* ${professionalName}
     📅 *Fecha:* ${formattedDate}
